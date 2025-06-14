@@ -1,0 +1,26 @@
+eb framework with known issues in old versions
+Django==1.11.1
+
+# Package with RCE vulnerabilities in old versions
+Flask==0.10
+
+# Outdated requests library with several issues
+requests==2.3.0
+
+# PyYAML had unsafe loader vulnerabilities
+PyYAML==3.11
+
+# SQLAlchemy had SQL injection issues in older versions
+SQLAlchemy==1.1.0
+
+# MarkupSafe had escaping bugs
+MarkupSafe==0.23
+
+# Cryptography with old SSL/TLS bugs
+cryptography==1.2.1
+
+# Pillow with image parsing vulnerabilities
+Pillow==2.2.1
+
+# Celery with insecure deserialization issues
+celery==3.1.11
