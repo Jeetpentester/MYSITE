@@ -1,60 +1,71 @@
-name: Create Azure Boards Task from Dependabot PR
+name: Sync Dependabot Alerts to Azure Boards
 
 on:
-  workflow_dispatch:  # ✅ Manual run from GitHub UI
-  pull_request:       # ✅ Trigger on PRs targeting 'main'
-    types: [opened, reopened, synchronize]
-    branches:
-      - main
+  schedule:
+    - cron: '0 */6 * * *'  # every 6 hours
+  workflow_dispatch:      # manual run allowed
 
 jobs:
-  create_azure_task:
+  sync_dependabot_alerts:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔍 Print Actor & PR Info
+      - name: Get Dependabot Alerts from GitHub
+        id: get_alerts
+        env:
+          GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          echo "GitHub Actor: ${{ github.actor }}"
-          echo "PR Title: ${{ github.event.pull_request.title }}"
-          echo "PR URL: ${{ github.event.pull_request.html_url }}"
-          echo "PR Body: ${{ github.event.pull_request.body }}"
+          echo "Fetching Dependabot alerts..."
 
-      - name: 🚀 Create Azure Boards Task via REST API
+          RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open")
+
+          echo "$RESPONSE" > alerts.json
+          COUNT=$(jq length alerts.json)
+          echo "Found $COUNT open Dependabot alerts"
+          
+          echo "alerts_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESPONSE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Azure Boards Tasks
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
           AZURE_PROJECT: MYSITE
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_URL="${{ github.event.pull_request.html_url }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          
-          echo "Creating Azure Boards Task for PR: $PR_TITLE"
+          cat alerts.json | jq -c '.[]' | while read -r alert; do
+            SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity')
+            PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
+            IDENTIFIER=$(echo "$alert" | jq -r '.security_advisory.ghsa_id')
+            DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
+            URL=$(echo "$alert" | jq -r '.html_url')
 
-          AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
+            TITLE="⚠️ $SEVERITY vulnerability in $PACKAGE ($IDENTIFIER)"
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
-            -H "Content-Type: application/json-patch+json" \
-            -H "Authorization: Basic $AUTH_HEADER" \
-            -d "[{
-                  \"op\": \"add\",
-                  \"path\": \"/fields/System.Title\",
-                  \"value\": \"Dependabot: $PR_TITLE\"
-                },{
-                  \"op\": \"add\",
-                  \"path\": \"/fields/System.Description\",
-                  \"value\": \"This task was auto-created for a Dependabot PR: <a href='$PR_URL'>$PR_TITLE</a><br/><br/>PR Body:<br/>$PR_BODY\"
-                }]")
+            echo "Creating task: $TITLE"
 
-          STATUS=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
+            AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
 
-          echo "Status code: $STATUS"
-          echo "Response body: $BODY"
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
+              -H "Content-Type: application/json-patch+json" \
+              -H "Authorization: Basic $AUTH_HEADER" \
+              -d "[{
+                    \"op\": \"add\",
+                    \"path\": \"/fields/System.Title\",
+                    \"value\": \"$TITLE\"
+                  },{
+                    \"op\": \"add\",
+                    \"path\": \"/fields/System.Description\",
+                    \"value\": \"GitHub Dependabot alert: <a href='$URL'>$URL</a><br/><br/>$DESC\"
+                  }]")
 
-          if [[ "$STATUS" != "200" && "$STATUS" != "201" ]]; then
-            echo "❌ Failed to create Azure Boards Task"
-            exit 1
-          else
-            echo "✅ Azure Boards Task created successfully"
-          fi
+            STATUS=$(echo "$RESPONSE" | tail -n1)
+            if [[ "$STATUS" != "200" && "$STATUS" != "201" ]]; then
+              echo "❌ Failed to create task for $TITLE"
+            else
+              echo "✅ Task created for $PACKAGE"
+            fi
+          done
