@@ -12,10 +12,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Log PR info with GitHub Script (Optional)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prTitle = context.payload.pull_request.title;
+            const prUrl = context.payload.pull_request.html_url;
+            console.log(`Dependabot PR Title: ${prTitle}`);
+            console.log(`Dependabot PR URL: ${prUrl}`);
+
       - name: Create Azure DevOps Work Item
         env:
-          AZURE_ORG: devsecopsjeet              # e.g., "mycompany"
-          AZURE_PROJECT: MYSITE      # e.g., "MyProject"
+          AZURE_ORG: devsecopsjeet                   # Your Azure DevOps organization
+          AZURE_PROJECT: MYSITE                      # Your Azure DevOps project
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -30,12 +40,13 @@ jobs:
             {
               "op": "add",
               "path": "/fields/System.Description",
-              "value": "Dependabot PR: $PR_URL"
+              "value": "This Dependabot PR addresses a security or dependency update.\n\nPR Link: $PR_URL"
             }
           ]
           EOF
           )
 
+          echo "Creating Azure DevOps work item..."
           curl -X POST \
             -H "Content-Type: application/json-patch+json" \
             -u ":$AZURE_DEVOPS_PAT" \
