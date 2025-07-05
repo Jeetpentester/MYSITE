@@ -1,9 +1,9 @@
 name: Sync Dependabot Alerts to Azure Boards
 
 on:
-  workflow_dispatch:     # Allows manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours
+    - cron: '0 */6 * * *'  # every 6 hours
 
 jobs:
   sync_dependabot_alerts:
@@ -15,28 +15,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "🔐 Using token to fetch alerts from $GH_REPO"
+          echo "🔐 Fetching Dependabot alerts from $GH_REPO"
 
           curl -s -H "Authorization: token $GH_TOKEN" \
                -H "Accept: application/vnd.github+json" \
                "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open" \
                -o alerts.json
 
-          echo "📦 Raw alerts.json:"
+          echo "📄 Raw alerts:"
           cat alerts.json
 
-          echo "✅ Parsing test (first item):"
-          jq -c '.[0]' alerts.json || echo "⚠️ No alerts or invalid format"
+          echo "🧪 Check if alerts.json is a valid array"
+          IS_ARRAY=$(jq 'if type=="array" then true else false end' alerts.json)
+          echo "IS_ARRAY=$IS_ARRAY" >> $GITHUB_ENV
 
       - name: 🔁 Create Azure Boards Tasks from Alerts
+        if: env.IS_ARRAY == 'true'
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
           AZURE_PROJECT: MYSITE
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
-          echo "📤 Looping through Dependabot alerts..."
+          echo "📤 Processing alerts..."
 
-          cat alerts.json | jq -c '.[]' | while read -r alert; do
+          jq -c '.[]' alerts.json | while read -r alert; do
             SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity')
             PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
             IDENTIFIER=$(echo "$alert" | jq -r '.security_advisory.ghsa_id')
@@ -70,3 +72,9 @@ jobs:
               echo "$RESPONSE" | sed '$d'
             fi
           done
+
+      - name: ⚠️ Log if API returned non-array data
+        if: env.IS_ARRAY != 'true'
+        run: |
+          echo "⚠️ GitHub API did not return a valid array. Check alerts.json:"
+          cat alerts.json
