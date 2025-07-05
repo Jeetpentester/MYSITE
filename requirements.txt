@@ -24,3 +24,9 @@ Pillow==2.2.1
 
 # Celery with insecure deserialization issues
 celery==3.1.11
+
+pyyaml==4.1           # CVE-2017-18342 - Arbitrary code execution via yaml.load
+jinja2==2.10.1        # CVE-2019-10906 - Sandbox escape
+paramiko==2.4.1       # CVE-2018-1000805 - Insecure use of predictable IV
+sqlalchemy==1.2.17    # CVE-2019-7548 - SQL Injection in ORM
+cryptography==2.3     # CVE-2020-36242 - Integer overflow in ASN.1 parser
