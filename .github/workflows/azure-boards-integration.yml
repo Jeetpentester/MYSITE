@@ -1,0 +1,47 @@
+name: Create Azure Boards work item from security alert
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *' # Run every hour
+
+jobs:
+  sync-vulnerabilities:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get security alerts
+        uses: actions/github-script@v7
+        id: get_alerts
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const alerts = await github.rest.dependabot.listAlertsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              severity: 'high'
+            });
+            return alerts.data.slice(0, 5); // Limit for demo
+
+      - name: Create Azure Boards work item
+        if: steps.get_alerts.outputs.result != '[]'
+        run: |
+          echo "${{ steps.get_alerts.outputs.result }}" > alerts.json
+          for row in $(jq -c '.[]' alerts.json); do
+            title=$(echo "$row" | jq -r '.security_advisory.summary')
+            url=$(echo "$row" | jq -r '.html_url')
+            description="GitHub Dependabot Alert: $title\n\n$url"
+
+            curl -X POST \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Basic $(echo -n :${{ secrets.AZURE_DEVOPS_PAT }} | base64)" \
+              -d "{
+                \"fields\": {
+                  \"System.Title\": \"$title\",
+                  \"System.Description\": \"$description\",
+                  \"System.WorkItemType\": \"Bug\"
+                }
+              }" \
+              "https://dev.azure.com/devsecopsjeet/MYSITE/_apis/wit/workitems/\$Bug?api-version=7.0"
+          done
