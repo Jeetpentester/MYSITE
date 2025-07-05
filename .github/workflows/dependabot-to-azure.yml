@@ -24,20 +24,29 @@ jobs:
 
           echo "Creating Azure Boards Task for PR: $PR_TITLE"
 
+          # Base64 encode the PAT with no newline
+          AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
+
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
             -H "Content-Type: application/json-patch+json" \
-            -H "Authorization: Basic $(echo -n :$AZURE_DEVOPS_PAT | base64)" \
-            -d "[
-              {
-                \"op\": \"add\",
-                \"path\": \"/fields/System.Title\",
-                \"value\": \"Dependabot: $PR_TITLE\"
-              },
-              {
-                \"op\": \"add\",
-                \"path\": \"/fields/System.Description\",
-                \"value\": \"This task was auto-created for a Dependabot PR: <a href='$PR_URL'>$PR_TITLE</a><br/><br/>PR Body:<br/>$PR_BODY\"
-              }
-            ]")
+            -H "Authorization: Basic $AUTH_HEADER" \
+            -d "[{
+                  \"op\": \"add\",
+                  \"path\": \"/fields/System.Title\",
+                  \"value\": \"Dependabot: $PR_TITLE\"
+                },{
+                  \"op\": \"add\",
+                  \"path\": \"/fields/System.Description\",
+                  \"value\": \"This task was auto-created for a Dependabot PR: <a href='$PR_URL'>$PR_TITLE</a><br/><br/>PR Body:<br/>$PR_BODY\"
+                }]")
 
-          echo "$RESPONSE"
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Status code: $STATUS"
+          echo "Response body: $BODY"
+
+          if [[ "$STATUS" != "200" && "$STATUS" != "201" ]]; then
+            echo "Failed to create Azure Boards Task"
+            exit 1
+          fi
