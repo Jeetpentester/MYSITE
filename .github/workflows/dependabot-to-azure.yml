@@ -1,41 +1,41 @@
 name: Sync Dependabot Alerts to Azure Boards
 
 on:
+  workflow_dispatch:     # Allows manual trigger
   schedule:
-    - cron: '0 */6 * * *'  # every 6 hours
-  workflow_dispatch:      # manual run allowed
+    - cron: '0 */6 * * *'  # Runs every 6 hours
 
 jobs:
   sync_dependabot_alerts:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get Dependabot Alerts from GitHub
-        id: get_alerts
+      - name: 🧪 Fetch Dependabot Alerts
         env:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching Dependabot alerts..."
+          echo "🔐 Using token to fetch alerts from $GH_REPO"
 
-          RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open")
+          curl -s -H "Authorization: token $GH_TOKEN" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open" \
+               -o alerts.json
 
-          echo "$RESPONSE" > alerts.json
-          COUNT=$(jq length alerts.json)
-          echo "Found $COUNT open Dependabot alerts"
-          
-          echo "alerts_json<<EOF" >> $GITHUB_OUTPUT
-          echo "$RESPONSE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "📦 Raw alerts.json:"
+          cat alerts.json
 
-      - name: Create Azure Boards Tasks
+          echo "✅ Parsing test (first item):"
+          jq -c '.[0]' alerts.json || echo "⚠️ No alerts or invalid format"
+
+      - name: 🔁 Create Azure Boards Tasks from Alerts
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
           AZURE_PROJECT: MYSITE
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
+          echo "📤 Looping through Dependabot alerts..."
+
           cat alerts.json | jq -c '.[]' | while read -r alert; do
             SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity')
             PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
@@ -45,7 +45,7 @@ jobs:
 
             TITLE="⚠️ $SEVERITY vulnerability in $PACKAGE ($IDENTIFIER)"
 
-            echo "Creating task: $TITLE"
+            echo "➡️ Creating task: $TITLE"
 
             AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
 
@@ -63,9 +63,10 @@ jobs:
                   }]")
 
             STATUS=$(echo "$RESPONSE" | tail -n1)
-            if [[ "$STATUS" != "200" && "$STATUS" != "201" ]]; then
-              echo "❌ Failed to create task for $TITLE"
-            else
+            if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
               echo "✅ Task created for $PACKAGE"
+            else
+              echo "❌ Failed to create task. Status: $STATUS"
+              echo "$RESPONSE" | sed '$d'
             fi
           done
