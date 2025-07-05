@@ -1,0 +1,6 @@
+version: 2
+updates:
+  - package-ecosystem: "pip" # or "pip", "maven", etc.
+    directory: "/" 
+    schedule:
+      interval: "daily

@@ -1,24 +1,25 @@
-name: Test Dependabot API with GitHub PAT
+name: Create Azure Work Item for Dependabot Alerts
 
 on:
-  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened]
+    branches:
+      - main
 
 jobs:
-  test-dependabot:
+  create_azure_work_item:
+    if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Test Dependabot Alerts API
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_SECURITY_PAT }}  # 🔐 Make sure this secret exists!
-          script: |
-            const alerts = await github.rest.dependabot.listAlertsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              per_page: 5
-            });
-            console.log("Found alerts:", alerts.data.length);
-            for (const alert of alerts.data) {
-              console.log(`- ${alert.security_advisory.summary}`);
-            }
+      - name: Create Azure DevOps Work Item
+        run: |
+          curl -u :${{ secrets.AZURE_DEVOPS_PAT }} \
+            -X POST \
+            -H "Content-Type: application/json-patch+json" \
+            -d @work-item.json \
+            https://dev.azure.com/devsecopsjeet/MYSITE/_apis/wit/workitems/$Task?api-version=6.0
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        shell: bash
+        working-directory: .github/scripts
