@@ -47,8 +47,11 @@ marshmallow==2.15.1       # Old version with insecure schema validation
 # Requests/HTTP
 requests==2.19.1          # CVE-2018-18074: redirect vulnerability
 urllib3==1.24.1           # CVE-2019-11324: SSL certificate verification bypass
-pyyaml==4.1           # CVE-2017-18342 - Arbitrary code execution via yaml.load
+pyyaml==1.1           # CVE-2017-18342 - Arbitrary code execution via yaml.load
 jinja2==2.10.1        # CVE-2019-10906 - Sandbox escape
+paramiko==1.4.1       # CVE-2018-1000805 - Insecure use of predictable IV
+sqlalchemy==1.2.17    # CVE-2019-7548 - SQL Injection in ORM
+cryptography==2.3
 paramiko==2.4.1       # CVE-2018-1000805 - Insecure use of predictable IV
 sqlalchemy==1.2.17    # CVE-2019-7548 - SQL Injection in ORM
 cryptography==2.3
