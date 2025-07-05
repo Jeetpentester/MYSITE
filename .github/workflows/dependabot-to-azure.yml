@@ -1,4 +1,4 @@
-name: Create Azure Work Item for Dependabot Alerts
+name: Create Azure Boards Work Item for Dependabot PRs
 
 on:
   pull_request:
@@ -7,19 +7,37 @@ on:
       - main
 
 jobs:
-  create_azure_work_item:
+  create_work_item:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+
     steps:
       - name: Create Azure DevOps Work Item
-        run: |
-          curl -u :${{ secrets.AZURE_DEVOPS_PAT }} \
-            -X POST \
-            -H "Content-Type: application/json-patch+json" \
-            -d @work-item.json \
-            https://dev.azure.com/devsecopsjeet/MYSITE/_apis/wit/workitems/$Task?api-version=6.0
         env:
+          AZURE_ORG: devsecopsjeet              # e.g., "mycompany"
+          AZURE_PROJECT: MYSITE      # e.g., "MyProject"
+          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        shell: bash
-        working-directory: .github/scripts
+        run: |
+          json_payload=$(cat <<EOF
+          [
+            {
+              "op": "add",
+              "path": "/fields/System.Title",
+              "value": "Dependabot: $PR_TITLE"
+            },
+            {
+              "op": "add",
+              "path": "/fields/System.Description",
+              "value": "Dependabot PR: $PR_URL"
+            }
+          ]
+          EOF
+          )
+
+          curl -X POST \
+            -H "Content-Type: application/json-patch+json" \
+            -u ":$AZURE_DEVOPS_PAT" \
+            -d "$json_payload" \
+            "https://dev.azure.com/$AZURE_ORG/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=6.0"
