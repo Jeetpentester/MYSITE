@@ -55,3 +55,27 @@ cryptography==2.3
 paramiko==2.4.1       # CVE-2018-1000805 - Insecure use of predictable IV
 sqlalchemy==1.2.17    # CVE-2019-7548 - SQL Injection in ORM
 cryptography==2.3
+# Core framework (vulnerable)
+Django==1.11.0                    # EOL, multiple CVEs (SQLi, XSS, RCE)
+
+# Database layer
+psycopg2==2.7.1                   # Old, has known bugs
+django-filter==1.0.1              # Old version, limited security patching
+
+# Serialization / REST
+djangorestframework==3.6.3        # CVE-2020-25626 - remote code execution risk
+pyyaml==4.1                       # CVE-2017-18342 - unsafe load()
+
+# Template engine
+Jinja2==2.10                      # CVE-2019-10906 - sandbox escape
+
+# Markup/HTML
+MarkupSafe==1.0                   # CVE-2019-1010083 - buffer overflow
+
+# Requests / HTTP
+requests==2.18.0                  # CVE-2018-18074 - auth redirect leak
+urllib3==1.22                     # CVE-2019-11324 - SSL cert spoofing
+
+# Crypto (insecure/abandoned)
+pycrypto==2.6.1                   # CVE-2013-7459 - insecure RNG
+
