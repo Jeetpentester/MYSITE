@@ -1,18 +1,18 @@
-name: Create Azure Board Bug from Dependabot PR
+name: Create Azure Boards Task from Dependabot PR
 
 on:
   pull_request:
     types: [opened, reopened, synchronize]
     branches:
-      - main
+      - main  # Change if your default branch is different
 
 jobs:
-  create_bug:
+  create_task:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create Bug in Azure Boards
+      - name: Create Azure Boards Task
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
           AZURE_PROJECT: MYSITE
@@ -20,19 +20,22 @@ jobs:
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
 
-          curl -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Bug?api-version=6.0" \
+          echo "Creating Task in Azure DevOps..."
+
+          curl -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
             -H "Content-Type: application/json-patch+json" \
             -H "Authorization: Basic $(echo -n :$AZURE_DEVOPS_PAT | base64)" \
             -d "[
               {
                 \"op\": \"add\",
                 \"path\": \"/fields/System.Title\",
-                \"value\": \"Dependabot PR: $PR_TITLE\"
+                \"value\": \"Dependabot: $PR_TITLE\"
               },
               {
                 \"op\": \"add\",
                 \"path\": \"/fields/System.Description\",
-                \"value\": \"Automated update by Dependabot: <a href='$PR_URL'>$PR_TITLE</a>\"
+                \"value\": \"This task was auto-created for a Dependabot PR: <a href='$PR_URL'>$PR_TITLE</a><br/><br/>PR Body:<br/>$PR_BODY\"
               }
             ]"
