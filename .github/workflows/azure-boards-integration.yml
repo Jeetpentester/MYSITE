@@ -1,4 +1,4 @@
-ame: Dependabot → Azure Boards Sync
+name: Dependabot → Azure Boards Sync
 
 on:
   workflow_dispatch:
