@@ -3,7 +3,7 @@ name: Create Azure Boards Tasks from Dependabot Alerts
 on:
   workflow_dispatch:  # Manual trigger
   schedule:
-    - cron: '0 3 * * *'  # Optional: run every day at 03:00 UTC
+    - cron: '0 3 * * *'  # Optional: run daily at 03:00 UTC
 
 jobs:
   create_dependabot_tasks:
@@ -15,14 +15,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching open Dependabot alerts..."
+          echo "📥 Fetching open Dependabot alerts..."
 
           curl -s -H "Authorization: token $GH_TOKEN" \
                -H "Accept: application/vnd.github+json" \
                "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open" \
                -o alerts.json
 
-          echo "alerts.json preview:"
+          echo "🔎 Preview of alerts.json:"
           head -n 30 alerts.json
 
           IS_ARRAY=$(jq 'if type=="array" then true else false end' alerts.json)
@@ -35,21 +35,21 @@ jobs:
           AZURE_PROJECT: MYSITE
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
-          echo "Creating Azure DevOps tasks by severity..."
+          echo "🚀 Creating Azure Boards tasks grouped by severity..."
 
           jq -c '.[]' alerts.json | while read -r alert; do
-            SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity')
+            SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity // "Unknown"')
             PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
             IDENTIFIER=$(echo "$alert" | jq -r '.security_advisory.ghsa_id')
             DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
             URL=$(echo "$alert" | jq -r '.html_url')
 
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
-            DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Dependabot alert: <a href='$URL'>$URL</a><br/><br/>$DESC"
+            DESCRIPTION="🔐 **Severity:** $SEVERITY<br/><br/>🔗 [GitHub Alert]($URL)<br/><br/>📝 $DESC"
 
             AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
 
-            echo "Creating task: $TITLE"
+            echo "📌 Creating task for: $PACKAGE (Severity: $SEVERITY)"
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
               -H "Content-Type: application/json-patch+json" \
@@ -62,13 +62,17 @@ jobs:
                     \"op\": \"add\",
                     \"path\": \"/fields/System.Description\",
                     \"value\": \"$DESCRIPTION\"
+                  },{
+                    \"op\": \"add\",
+                    \"path\": \"/fields/Custom.Severity\",
+                    \"value\": \"$SEVERITY\"
                   }]")
 
             STATUS=$(echo "$RESPONSE" | tail -n1)
             if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
-              echo "Created task for $PACKAGE"
+              echo "✅ Task created for $PACKAGE"
             else
-              echo "Failed to create task (status: $STATUS)"
+              echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
             fi
           done
@@ -76,5 +80,5 @@ jobs:
       - name: Handle Non-Array Error
         if: env.IS_ARRAY != 'true'
         run: |
-          echo "The GitHub API did not return a valid JSON array."
+          echo "⚠️ GitHub API did not return a valid JSON array."
           cat alerts.json
