@@ -1,18 +1,25 @@
 name: Create Azure Boards Task from Dependabot PR
 
 on:
-  pull_request:
+  workflow_dispatch:  # ✅ Manual run from GitHub UI
+  pull_request:       # ✅ Trigger on PRs targeting 'main'
     types: [opened, reopened, synchronize]
     branches:
-      - main  # Replace with your default branch if different
+      - main
 
 jobs:
   create_azure_task:
-    if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create Azure Boards Task via REST API
+      - name: 🔍 Print Actor & PR Info
+        run: |
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "PR Title: ${{ github.event.pull_request.title }}"
+          echo "PR URL: ${{ github.event.pull_request.html_url }}"
+          echo "PR Body: ${{ github.event.pull_request.body }}"
+
+      - name: 🚀 Create Azure Boards Task via REST API
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
           AZURE_PROJECT: MYSITE
@@ -21,10 +28,9 @@ jobs:
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
           PR_BODY="${{ github.event.pull_request.body }}"
-
+          
           echo "Creating Azure Boards Task for PR: $PR_TITLE"
 
-          # Base64 encode the PAT with no newline
           AUTH_HEADER=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
 
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
@@ -47,6 +53,8 @@ jobs:
           echo "Response body: $BODY"
 
           if [[ "$STATUS" != "200" && "$STATUS" != "201" ]]; then
-            echo "Failed to create Azure Boards Task"
+            echo "❌ Failed to create Azure Boards Task"
             exit 1
+          else
+            echo "✅ Azure Boards Task created successfully"
           fi
