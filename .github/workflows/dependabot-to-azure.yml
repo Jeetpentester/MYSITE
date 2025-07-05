@@ -1,5 +1,8 @@
 name: Create Azure Board Bug from Dependabot PR
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     types: [opened, reopened, synchronize]
