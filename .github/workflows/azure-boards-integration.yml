@@ -1,47 +1,51 @@
-name: Create Azure Boards work item from security alert
+ame: Dependabot → Azure Boards Sync
 
 on:
-  repository_dispatch:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * *' # Run every hour
+    - cron: '0 * * * *'  # Runs every hour
 
 jobs:
   sync-vulnerabilities:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Get security alerts
-        uses: actions/github-script@v7
+      - name: Get Dependabot alerts
         id: get_alerts
+        uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GH_SECURITY_PAT }}
+          github-token: ${{ secrets.GH_SECURITY_PAT }}  # ✅ Use custom PAT
           script: |
             const alerts = await github.rest.dependabot.listAlertsForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              severity: 'high'
+              per_page: 10
             });
-            return alerts.data.slice(0, 5); // Limit for demo
+            return alerts.data;
 
-      - name: Create Azure Boards work item
-        if: steps.get_alerts.outputs.result != '[]'
+      - name: Save alerts to file
         run: |
+          echo '${{ steps.get_alerts.outputs.result }}' > alerts.json
+          cat alerts.json
+
+      - name: Create Azure Boards work items
+        run: |
+          ORG="your-org"           # 🔁 Change this
+          PROJECT="your-project"   # 🔁 Change this
+
           echo "${{ steps.get_alerts.outputs.result }}" > alerts.json
           for row in $(jq -c '.[]' alerts.json); do
             title=$(echo "$row" | jq -r '.security_advisory.summary')
             url=$(echo "$row" | jq -r '.html_url')
-            description="GitHub Dependabot Alert: $title\n\n$url"
+            description="GitHub Dependabot Alert:\n\n$title\n\n$url"
 
-            curl -X POST \
-              -H "Content-Type: application/json" \
+            curl -X PATCH \
+              -H "Content-Type: application/json-patch+json" \
               -H "Authorization: Basic $(echo -n :${{ secrets.AZURE_DEVOPS_PAT }} | base64)" \
-              -d "{
-                \"fields\": {
-                  \"System.Title\": \"$title\",
-                  \"System.Description\": \"$description\",
-                  \"System.WorkItemType\": \"Bug\"
-                }
-              }" \
-              "https://dev.azure.com/devsecopsjeet/MYSITE/_apis/wit/workitems/\$Bug?api-version=7.0"
+              -d "[
+                {\"op\": \"add\", \"path\": \"/fields/System.Title\", \"value\": \"$title\"},
+                {\"op\": \"add\", \"path\": \"/fields/System.Description\", \"value\": \"$description\"}
+              ]" \
+              "https://dev.azure.com/$ORG/$PROJECT/_apis/wit/workitems/\$Bug?api-version=7.0"
           done
