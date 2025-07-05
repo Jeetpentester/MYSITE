@@ -32,3 +32,4 @@ sqlalchemy==1.2.17    # CVE-2019-7548 - SQL Injection in ORM
 cryptography==2.3     # CVE-2020-36242 - Integer overflow in ASN.1 parser
 sqlalchemy==1.1   # CVE-2019-7548 - SQL Injection in ORM
 cryptography==2.1 
+pyyaml==2.1
