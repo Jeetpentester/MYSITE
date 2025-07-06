@@ -45,7 +45,6 @@ jobs:
             DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
             URL=$(echo "$alert" | jq -r '.html_url')
 
-            # Escape double quotes to prevent JSON errors
             SAFE_DESC=$(echo "$DESC" | sed 's/"/\\"/g')
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
             DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
@@ -54,6 +53,8 @@ jobs:
 
             echo "Creating task: $TITLE"
 
+            # Temporarily disable exit-on-error for curl to prevent breaking the loop
+            set +e
             RESPONSE=$(curl -s -w "\n%{http_code}" \
               -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
               -H "Content-Type: application/json-patch+json" \
@@ -71,8 +72,9 @@ jobs:
                     \"path\": \"/fields/Microsoft.VSTS.Common.Severity\",
                     \"value\": \"$SEVERITY\"
                   }]")
-
             STATUS=$(echo "$RESPONSE" | tail -n1)
+            set -e
+
             if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
               echo "✅ Task created for $PACKAGE with severity $SEVERITY"
             else
