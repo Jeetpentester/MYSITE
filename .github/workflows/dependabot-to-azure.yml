@@ -1,4 +1,4 @@
-name: Create Azure Boards Tasks from GitHub Dependabot Alerts
+name: Sync Dependabot Vulnerabilities to Azure Boards
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     - cron: '0 3 * * *'  # Daily at 03:00 UTC
 
 jobs:
-  create_dependabot_tasks:
+  sync_dependabot_to_azure_boards:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,20 +15,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching all open Dependabot alerts using pagination..."
+          echo "🔍 Fetching all open Dependabot alerts using pagination..."
 
           page=1
           all_alerts="[]"
 
           while :; do
-            echo "Fetching page $page..."
+            echo "📄 Fetching page $page..."
             response=$(curl -s -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open&per_page=100&page=$page")
 
             count=$(echo "$response" | jq 'length')
-            echo "Page $page returned $count alerts."
+            echo "✅ Page $page returned $count alerts."
 
+            # Merge with all_alerts
             all_alerts=$(jq -s 'add' <(echo "$all_alerts") <(echo "$response"))
 
             if [ "$count" -lt 100 ]; then
@@ -40,13 +41,14 @@ jobs:
 
           echo "$all_alerts" > alerts.json
 
-          total=$(jq length alerts.json)
-          echo "✅ Total alerts fetched: $total"
+          total_alerts=$(jq length alerts.json)
+          echo "📊 Total Dependabot alerts fetched: $total_alerts"
+          echo "TOTAL_ALERTS=$total_alerts" >> $GITHUB_ENV
 
           IS_ARRAY=$(jq 'if type=="array" then true else false end' alerts.json)
           echo "IS_ARRAY=$IS_ARRAY" >> $GITHUB_ENV
 
-      - name: Create Azure Boards Tasks with Severity
+      - name: Create Azure Boards Tasks
         if: env.IS_ARRAY == 'true'
         env:
           AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
@@ -55,9 +57,11 @@ jobs:
         run: |
           set -eo pipefail
 
-          echo "Creating tasks in Azure Boards with Severity assigned..."
-
+          echo "🛠 Creating Azure Boards tasks from alerts..."
           AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
+
+          total_created=0
+          total_failed=0
 
           while IFS= read -r alert; do
             SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity // "Unknown"')
@@ -70,7 +74,7 @@ jobs:
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
             DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
 
-            echo "Creating task: $TITLE"
+            echo "📌 Creating task: $TITLE"
 
             set +e
             RESPONSE=$(curl -s -w "\n%{http_code}" \
@@ -94,15 +98,22 @@ jobs:
             set -e
 
             if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
-              echo "✅ Task created for $PACKAGE with severity $SEVERITY"
+              echo "✅ Task created for $PACKAGE [$SEVERITY]"
+              total_created=$((total_created + 1))
             else
-              echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
+              echo "❌ Failed to create task for $PACKAGE [$SEVERITY] (Status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
+              total_failed=$((total_failed + 1))
             fi
 
           done < <(jq -c '.[]' alerts.json)
 
-      - name: Handle non-array response
+          echo "📋 Summary:"
+          echo "🔸 Total alerts processed: $TOTAL_ALERTS"
+          echo "✅ Tasks created: $total_created"
+          echo "❌ Tasks failed: $total_failed"
+
+      - name: Handle Non-Array JSON Response
         if: env.IS_ARRAY != 'true'
         run: |
           echo "⚠️ GitHub API did not return an array of Dependabot alerts."
