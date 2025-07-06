@@ -1,7 +1,7 @@
 name: Create Azure Boards Tasks from GitHub Dependabot Alerts
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
   schedule:
     - cron: '0 3 * * *'  # Daily at 03:00 UTC
 
@@ -38,6 +38,8 @@ jobs:
 
           echo "Creating tasks in Azure Boards with Severity assigned..."
 
+          AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
+
           while IFS= read -r alert; do
             SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity // "Unknown"')
             PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
@@ -49,11 +51,8 @@ jobs:
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
             DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
 
-            AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64)
-
             echo "Creating task: $TITLE"
 
-            # Temporarily disable exit-on-error for curl to prevent breaking the loop
             set +e
             RESPONSE=$(curl -s -w "\n%{http_code}" \
               -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
@@ -80,6 +79,23 @@ jobs:
             else
               echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
+              echo "Debug info: Curl verbose output below"
+              curl -v -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
+                -H "Content-Type: application/json-patch+json" \
+                -H "Authorization: Basic $AUTH" \
+                -d "[{
+                      \"op\": \"add\",
+                      \"path\": \"/fields/System.Title\",
+                      \"value\": \"$TITLE\"
+                    },{
+                      \"op\": \"add\",
+                      \"path\": \"/fields/System.Description\",
+                      \"value\": \"$DESCRIPTION\"
+                    },{
+                      \"op\": \"add\",
+                      \"path\": \"/fields/Microsoft.VSTS.Common.Severity\",
+                      \"value\": \"$SEVERITY\"
+                    }]"
             fi
 
           done < <(jq -c '.[]' alerts.json)
