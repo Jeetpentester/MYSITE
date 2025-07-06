@@ -8,6 +8,7 @@ If not found, creates new tasks in Azure Boards for each alert
 Skips already-created ones, and logs the outcome
 
 Implementation Steps
+
 🔹 Step 1: Prepare Your GitHub Repository
 Navigate to your repo (or create a new one).
 Ensure Dependabot is enabled and configured to generate alerts.
@@ -55,19 +56,19 @@ Update the Create Azure Boards Tasks step with your actual Azure DevOps organiza
 env:
   AZURE_ORG: https://dev.azure.com/YOUR_ORG_NAME
   AZURE_PROJ: YOUR_PROJECT_NAME
-Step 4: Install Required Tools
+🔹 Step 3: Install Required Tools
 This script uses:
 curl and jq (already available in ubuntu-latest GitHub runners)
 No additional setup needed here.
 
-🔹 Step 5: Run the Workflow
+🔹 Step 4: Run the Workflow
 You can trigger the workflow in two ways:
 A. Manual Run
 Go to Actions tab → Choose “Sync Dependabot to Azure Boards” → Click Run workflow
 B. Scheduled Run
 The cron expression 0 3 * * * runs every day at 03:00 UTC
 
-🔹 Step 6: Monitor Output
+🔹 Step 5: Monitor Output
 In the GitHub Actions run logs, you’ll see:
 Total number of alerts
 Which were created
@@ -78,7 +79,7 @@ Which failed (with status codes)
 This script uses a custom field Custom.GHSAID in Azure DevOps:
 
 
-🔹 Step 7:You must create this custom field in your Azure DevOps project:
+🔹 Step 6:You must create this custom field in your Azure DevOps project:
 Go to Azure DevOps → Project Settings → Process
 Choose the process your project is using (e.g., Agile, Scrum, etc.)
 Go to Work Item Types → Task
