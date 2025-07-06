@@ -10,19 +10,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch Dependabot Alerts from GitHub
+      - name: Fetch All Dependabot Alerts with Pagination
         env:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "Fetching open Dependabot alerts..."
-          curl -s -H "Authorization: token $GH_TOKEN" \
-               -H "Accept: application/vnd.github+json" \
-               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open&per_page=100" \
-               -o alerts.json
+          echo "Fetching all open Dependabot alerts using pagination..."
 
-          echo "alerts.json preview:"
-          head -n 30 alerts.json
+          page=1
+          all_alerts="[]"
+
+          while :; do
+            echo "Fetching page $page..."
+            response=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open&per_page=100&page=$page")
+
+            count=$(echo "$response" | jq 'length')
+            echo "Page $page returned $count alerts."
+
+            all_alerts=$(jq -s 'add' <(echo "$all_alerts") <(echo "$response"))
+
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+
+            page=$((page + 1))
+          done
+
+          echo "$all_alerts" > alerts.json
+
+          total=$(jq length alerts.json)
+          echo "✅ Total alerts fetched: $total"
 
           IS_ARRAY=$(jq 'if type=="array" then true else false end' alerts.json)
           echo "IS_ARRAY=$IS_ARRAY" >> $GITHUB_ENV
@@ -79,23 +98,6 @@ jobs:
             else
               echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
-              echo "Debug info: Curl verbose output below"
-              curl -v -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
-                -H "Content-Type: application/json-patch+json" \
-                -H "Authorization: Basic $AUTH" \
-                -d "[{
-                      \"op\": \"add\",
-                      \"path\": \"/fields/System.Title\",
-                      \"value\": \"$TITLE\"
-                    },{
-                      \"op\": \"add\",
-                      \"path\": \"/fields/System.Description\",
-                      \"value\": \"$DESCRIPTION\"
-                    },{
-                      \"op\": \"add\",
-                      \"path\": \"/fields/Microsoft.VSTS.Common.Severity\",
-                      \"value\": \"$SEVERITY\"
-                    }]"
             fi
 
           done < <(jq -c '.[]' alerts.json)
