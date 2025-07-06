@@ -34,16 +34,18 @@ jobs:
           AZURE_PROJECT: azureboard
           AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
+          set -eo pipefail
+
           echo "Creating tasks in Azure Boards with Severity assigned..."
 
-          jq -c '.[]' alerts.json | while read -r alert; do
+          while IFS= read -r alert; do
             SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity // "Unknown"')
             PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
             IDENTIFIER=$(echo "$alert" | jq -r '.security_advisory.ghsa_id')
             DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
             URL=$(echo "$alert" | jq -r '.html_url')
 
-            # Escape double quotes in description to avoid JSON errors
+            # Escape double quotes to prevent JSON errors
             SAFE_DESC=$(echo "$DESC" | sed 's/"/\\"/g')
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
             DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
@@ -77,7 +79,8 @@ jobs:
               echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
             fi
-          done
+
+          done < <(jq -c '.[]' alerts.json)
 
       - name: Handle non-array response
         if: env.IS_ARRAY != 'true'
