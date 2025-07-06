@@ -77,5 +77,8 @@ requests==2.18.0                  # CVE-2018-18074 - auth redirect leak
 urllib3==1.22                     # CVE-2019-11324 - SSL cert spoofing
 
 # Crypto (insecure/abandoned)
-pycrypto==2.6.1                   # CVE-2013-7459 - insecure RNG
-
+pycrypto==1.0                   # CVE-2013-7459 - insecure RNG
+cryptography==1.0 
+pyyaml==2.1
+sqlalchemy==1.3.0         # CVE-2021-29420, SQL Injection risk
+pymysql==0.7

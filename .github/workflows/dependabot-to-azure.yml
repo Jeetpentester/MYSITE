@@ -1,4 +1,4 @@
-name: Sync Dependabot Vulnerabilities to Azure Boards (No Duplicates)
+name: Sync Dependabot to Azure Boards (No Duplicates)
 
 on:
   workflow_dispatch:
@@ -15,113 +15,89 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_DEPENDABOT_PAT }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "🔍 Fetching all open Dependabot alerts..."
-
-          page=1
-          all_alerts="[]"
-
+          echo "Fetching all open Dependabot alerts..."
+          page=1; all_alerts="[]"
           while :; do
-            echo "Fetching page $page..."
-            response=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            resp=$(curl -s -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open&per_page=100&page=$page")
-
-            count=$(echo "$response" | jq 'length')
-            all_alerts=$(jq -s 'add' <(echo "$all_alerts") <(echo "$response"))
-
-            if [ "$count" -lt 100 ]; then break; fi
-            page=$((page + 1))
+            cnt=$(echo "$resp" | jq 'length')
+            all_alerts=$(jq -s 'add' <(echo "$all_alerts") <(echo "$resp"))
+            (( cnt < 100 )) && break
+            ((page++))
           done
-
           echo "$all_alerts" > alerts.json
-          total_alerts=$(jq length alerts.json)
-          echo "📊 Total Dependabot alerts fetched: $total_alerts"
-          echo "IS_ARRAY=$(jq 'if type=="array" then true else false end' alerts.json)" >> $GITHUB_ENV
-          echo "TOTAL_ALERTS=$total_alerts" >> $GITHUB_ENV
+          total=$(jq length alerts.json)
+          echo "TOTAL_ALERTS=$total" >> $GITHUB_ENV
+          echo "IS_ARRAY=$(jq 'if type==\"array\" then true else false end' alerts.json)" >> $GITHUB_ENV
 
-      - name: Create Azure Boards Tasks Without Duplication
+      - name: Create Azure Boards Tasks (with GHSAID field)
         if: env.IS_ARRAY == 'true'
         env:
-          AZURE_ORG_URL: https://dev.azure.com/devsecopsjeet
-          AZURE_PROJECT: azureboard
-          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+          AZURE_ORG: https://dev.azure.com/devsecopsjeet
+          AZURE_PROJ: azureboard
+          AZURE_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
         run: |
           set -eo pipefail
-          AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
-          total_created=0
-          total_skipped=0
-          total_failed=0
+          AUTH=$(echo -n ":$AZURE_PAT" | base64 | tr -d '\n')
+          created=0; skipped=0; failed=0
 
-          while IFS= read -r alert; do
-            SEVERITY=$(echo "$alert" | jq -r '.security_advisory.severity // "Unknown"')
-            PACKAGE=$(echo "$alert" | jq -r '.dependency.package.name')
-            IDENTIFIER=$(echo "$alert" | jq -r '.security_advisory.ghsa_id')
-            DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
-            URL=$(echo "$alert" | jq -r '.html_url')
+          while IFS= read -r a; do
+            ID=$(echo "$a" | jq -r '.security_advisory.ghsa_id')
+            SEV=$(echo "$a" | jq -r '.security_advisory.severity // "Unknown"')
+            Pkg=$(echo "$a" | jq -r '.dependency.package.name')
+            sum=$(echo "$a" | jq -r '.security_advisory.summary' | sed 's/"/\\"/g')
+            url=$(echo "$a" | jq -r '.html_url')
 
-            SAFE_DESC=$(echo "$DESC" | sed 's/"/\\"/g')
-            TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
-            DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
-
-            echo "🔎 Checking if task for GHSA ID $IDENTIFIER exists..."
-
-            WI_QUERY="$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/wiql?api-version=7.0"
-            WI_PAYLOAD="{\"query\": \"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '$AZURE_PROJECT' AND [System.Title] CONTAINS '$IDENTIFIER'\"}"
-
-            WI_RESULT=$(curl -s -X POST "$WI_QUERY" \
-              -H "Authorization: Basic $AUTH" \
+            echo "Checking GHSAID $ID..."
+            query_url="$AZURE_ORG/$AZURE_PROJ/_apis/wit/wiql?api-version=7.0"
+            q="{\"query\": \"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject]='$AZURE_PROJ' AND [Custom.GHSAID] = '$ID'\"}"
+            res=$(curl -s -X POST "$query_url" \
               -H "Content-Type: application/json" \
-              -d "$WI_PAYLOAD")
+              -H "Authorization: Basic $AUTH" \
+              -d "$q")
+            exist=$(echo "$res" | jq '.workItems | length')
 
-            EXISTING_COUNT=$(echo "$WI_RESULT" | jq '.workItems | length')
-
-            if [[ "$EXISTING_COUNT" -gt 0 ]]; then
-              echo "⚠️ Task already exists for $IDENTIFIER — skipping."
-              total_skipped=$((total_skipped + 1))
+            if [[ $exist -gt 0 ]]; then
+              echo "Skipped: GHSAID $ID already exists."
+              (( skipped++ ))
               continue
             fi
 
-            echo "📌 Creating new task: $TITLE"
+            title="[$SEV] $Pkg - $ID"
+            desc="Severity: $SEV<br/><a href='$url'>$url</a><br/>$sum"
 
             set +e
-            RESPONSE=$(curl -s -w "\n%{http_code}" \
-              -X POST "$AZURE_ORG_URL/$AZURE_PROJECT/_apis/wit/workitems/\$Task?api-version=7.0" \
+            resp=$(curl -s -w "\n%{http_code}" \
+              -X POST "$AZURE_ORG/$AZURE_PROJ/_apis/wit/workitems/\$Task?api-version=7.0" \
               -H "Content-Type: application/json-patch+json" \
               -H "Authorization: Basic $AUTH" \
               -d "[{
-                    \"op\": \"add\",
-                    \"path\": \"/fields/System.Title\",
-                    \"value\": \"$TITLE\"
+                    \"op\":\"add\",\"path\":\"/fields/System.Title\",\"value\":\"$title\"
                   },{
-                    \"op\": \"add\",
-                    \"path\": \"/fields/System.Description\",
-                    \"value\": \"$DESCRIPTION\"
+                    \"op\":\"add\",\"path\":\"/fields/System.Description\",\"value\":\"$desc\"
                   },{
-                    \"op\": \"add\",
-                    \"path\": \"/fields/Microsoft.VSTS.Common.Severity\",
-                    \"value\": \"$SEVERITY\"
+                    \"op\":\"add\",\"path\":\"/fields/Microsoft.VSTS.Common.Severity\",\"value\":\"$SEV\"
+                  },{
+                    \"op\":\"add\",\"path\":\"/fields/Custom.GHSAID\",\"value\":\"$ID\"
                   }]")
-            STATUS=$(echo "$RESPONSE" | tail -n1)
+            code=$(echo "$resp" | tail -n1)
             set -e
 
-            if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
-              echo "✅ Task created for $PACKAGE [$SEVERITY]"
-              total_created=$((total_created + 1))
+            if [[ $code =~ ^20[01]$ ]]; then
+              echo "Created: $ID"
+              (( created++ ))
             else
-              echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
-              echo "$RESPONSE" | sed '$d'
-              total_failed=$((total_failed + 1))
+              echo "Failed: $ID (Status $code)"
+              (( failed++ ))
             fi
           done < <(jq -c '.[]' alerts.json)
 
-          echo "📋 Sync Summary:"
-          echo "🔸 Total alerts fetched: $TOTAL_ALERTS"
-          echo "✅ Tasks created: $total_created"
-          echo "⏭️ Tasks skipped (already existed): $total_skipped"
-          echo "❌ Tasks failed: $total_failed"
+          echo "Total alerts: $TOTAL_ALERTS"
+          echo "✅ Created: $created"
+          echo "⏭️ Skipped existing: $skipped"
+          echo "❌ Failed: $failed"
 
-      - name: Handle Non-Array API Response
+      - name: Show JSON If Fetch Wasn’t Array
         if: env.IS_ARRAY != 'true'
-        run: |
-          echo "⚠️ GitHub API did not return an array of alerts."
-          cat alerts.json
+        run: cat alerts.json
