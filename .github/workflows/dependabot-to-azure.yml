@@ -1,7 +1,7 @@
-name: Create Azure Boards Tasks from Dependabot Alerts
+name: Create Azure Boards Tasks from GitHub Dependabot Alerts
 
 on:
-  workflow_dispatch:  # Manual run
+  workflow_dispatch:  # Manual trigger
   schedule:
     - cron: '0 3 * * *'  # Daily at 03:00 UTC
 
@@ -18,7 +18,7 @@ jobs:
           echo "Fetching open Dependabot alerts..."
           curl -s -H "Authorization: token $GH_TOKEN" \
                -H "Accept: application/vnd.github+json" \
-               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open" \
+               "https://api.github.com/repos/$GH_REPO/dependabot/alerts?state=open&per_page=100" \
                -o alerts.json
 
           echo "alerts.json preview:"
@@ -43,10 +43,12 @@ jobs:
             DESC=$(echo "$alert" | jq -r '.security_advisory.summary')
             URL=$(echo "$alert" | jq -r '.html_url')
 
+            # Escape double quotes in description to avoid JSON errors
+            SAFE_DESC=$(echo "$DESC" | sed 's/"/\\"/g')
             TITLE="[$SEVERITY] $PACKAGE - $IDENTIFIER"
-            DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$DESC"
+            DESCRIPTION="Severity: $SEVERITY<br/><br/>GitHub Alert: <a href='$URL'>$URL</a><br/><br/>$SAFE_DESC"
 
-            AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64 | tr -d '\n')
+            AUTH=$(echo -n ":$AZURE_DEVOPS_PAT" | base64)
 
             echo "Creating task: $TITLE"
 
@@ -64,15 +66,15 @@ jobs:
                     \"value\": \"$DESCRIPTION\"
                   },{
                     \"op\": \"add\",
-                    \"path\": \"/fields/Severity\",
+                    \"path\": \"/fields/Microsoft.VSTS.Common.Severity\",
                     \"value\": \"$SEVERITY\"
                   }]")
 
             STATUS=$(echo "$RESPONSE" | tail -n1)
             if [[ "$STATUS" == "200" || "$STATUS" == "201" ]]; then
-              echo "Task created for $PACKAGE with severity $SEVERITY"
+              echo "✅ Task created for $PACKAGE with severity $SEVERITY"
             else
-              echo "Failed to create task for $PACKAGE (status: $STATUS)"
+              echo "❌ Failed to create task for $PACKAGE (status: $STATUS)"
               echo "$RESPONSE" | sed '$d'
             fi
           done
@@ -80,5 +82,5 @@ jobs:
       - name: Handle non-array response
         if: env.IS_ARRAY != 'true'
         run: |
-          echo "GitHub API did not return Dependabot alerts array."
+          echo "⚠️ GitHub API did not return an array of Dependabot alerts."
           cat alerts.json
